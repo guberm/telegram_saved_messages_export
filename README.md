@@ -1,25 +1,21 @@
 # Telegram Saved Messages Exporter
 
-Export your Telegram saved messages to individual HTML and Markdown files with date filtering options.
+Export your Telegram saved messages to organized HTML and Markdown files with media downloads.
 
-## Features
+## ✨ Features
 
-- ✅ Export all saved messages or filter by date
-- ✅ Each message saved as both HTML and Markdown
-- ✅ Preserves message metadata (date, forwarding info)
-- ✅ Handles media information and captions
-- ✅ Beautiful HTML formatting with CSS styling
-- ✅ Safe filename generation
+- **📁 Individual Message Folders** - Each message gets its own folder
+- **🎨 Telegram-like HTML Styling** - HTML files look like actual Telegram messages  
+- **🖼️ Media Downloads** - Automatically downloads and saves images, videos, etc.
+- **📊 SQLite Database Tracking** - Tracks exported messages to avoid duplicates
+- **🔄 Incremental Exports** - Only exports new messages by default
+- **📈 Export Statistics** - View export stats and progress
+- **🔗 Message Links** - Links to original messages in Telegram
 
-## Setup
+## 📋 Setup
 
 ### 1. Install Dependencies
 
-```bash
-pip install -r requirements.txt
-```
-
-Or install directly:
 ```bash
 pip install telethon
 ```
@@ -28,25 +24,27 @@ pip install telethon
 
 1. Go to https://my.telegram.org/auth
 2. Log in with your phone number
-3. Navigate to **"API development tools"**
-4. Create a new application (if you haven't already)
-5. You'll receive:
-   - `api_id` (a number)
-   - `api_hash` (a string)
+3. Go to "API development tools"
+4. Create a new application
+5. Copy your `api_id` and `api_hash`
 
 ### 3. Configure the Script
 
-Open `telegram_export.py` and edit these lines:
+1. Copy the example config file:
+   ```bash
+   copy config.py.example config.py
+   ```
 
-```python
-API_ID = 'YOUR_API_ID'          # Replace with your api_id
-API_HASH = 'YOUR_API_HASH'      # Replace with your api_hash
-PHONE = 'YOUR_PHONE_NUMBER'     # Replace with your phone (e.g., +1234567890)
-```
+2. Edit `config.py` and replace the placeholder values:
+   ```python
+   API_ID = '12345678'  # Your API ID
+   API_HASH = 'your_api_hash_here'  # Your API Hash
+   PHONE = '+1234567890'  # Your phone number
+   ```
 
 ### 4. First Run Authentication
 
-The first time you run the script, Telegram will send you a verification code. Enter it when prompted.
+On the first run, you'll be asked to enter the verification code sent to your Telegram account.
 
 ## Usage
 
