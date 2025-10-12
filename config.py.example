@@ -1,0 +1,19 @@
+# Telegram API Configuration Template
+# Copy this file to config.py and fill in your values
+# Get these values from https://my.telegram.org/auth
+
+# API credentials - REPLACE THESE WITH YOUR VALUES
+API_ID = 'YOUR_API_ID'  # Replace with your API ID (number)
+API_HASH = 'YOUR_API_HASH'  # Replace with your API Hash (string)
+PHONE = 'YOUR_PHONE_NUMBER'  # Replace with your phone number (e.g., +1234567890)
+
+# Export settings
+OUTPUT_DIR = 'telegram_saved_messages_exports'  # Directory where exports will be saved
+
+# Optional settings
+SESSION_NAME = 'telegram_session'  # Name of the session file
+
+# Example:
+# API_ID = '12345678'
+# API_HASH = 'abcdef1234567890abcdef1234567890'
+# PHONE = '+1234567890'

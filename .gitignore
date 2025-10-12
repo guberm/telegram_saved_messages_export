@@ -1,0 +1,27 @@
+# Telegram session files
+*.session
+*.session-journal
+
+# Configuration with sensitive data
+config.py
+
+# Export directories
+telegram_saved_messages_exports/
+telegram_exports/
+
+# Database files
+*.db
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
