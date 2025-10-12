@@ -19,8 +19,11 @@ from formatters import message_to_html_with_media, message_to_markdown
 from media_handler import download_media
 
 
-async def export_saved_messages(client, db_path, from_date=None, force_reexport=False):
+async def export_saved_messages(client, db_path, from_date=None, force_reexport=False, output_dir=None):
     """Export saved messages from Telegram."""
+    if output_dir is None:
+        output_dir = OUTPUT_DIR
+        
     print("Fetching saved messages...")
     
     # Get saved messages (chat with yourself)
@@ -28,7 +31,7 @@ async def export_saved_messages(client, db_path, from_date=None, force_reexport=
     saved_messages = await client.get_entity('me')
     
     # Create output directory
-    output_path = Path(OUTPUT_DIR)
+    output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     
     # Fetch messages

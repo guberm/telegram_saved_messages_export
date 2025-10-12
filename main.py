@@ -61,14 +61,15 @@ Examples:
     args = parser.parse_args()
     
     # Update output directory if specified
+    current_output_dir = OUTPUT_DIR
     if args.output:
+        current_output_dir = args.output
         # We need to update the config module's OUTPUT_DIR
         import config
         config.OUTPUT_DIR = args.output
-        OUTPUT_DIR = args.output
     
-    # Initialize database
-    db_path = init_database()
+    # Initialize database with the correct output directory
+    db_path = init_database(current_output_dir)
     
     # Show stats if requested
     if args.stats:
@@ -114,7 +115,7 @@ Examples:
         print("✓ Connected to Telegram")
         
         # Export messages
-        await export_saved_messages(client, db_path, from_date=from_date, force_reexport=args.force)
+        await export_saved_messages(client, db_path, from_date=from_date, force_reexport=args.force, output_dir=current_output_dir)
         
     except Exception as e:
         print(f"Error: {e}")

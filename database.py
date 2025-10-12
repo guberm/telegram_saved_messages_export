@@ -5,18 +5,19 @@ Database operations for tracking exported messages
 import sqlite3
 from pathlib import Path
 
-# Import configuration
-try:
-    from config import OUTPUT_DIR
-except ImportError:
-    print("⚠️  ERROR: config.py file not found!")
-    exit(1)
-
-
-def init_database():
+def init_database(output_dir=None):
     """Initialize SQLite database to track exported messages."""
+    if output_dir is None:
+        # Import configuration
+        try:
+            from config import OUTPUT_DIR
+            output_dir = OUTPUT_DIR
+        except ImportError:
+            print("⚠️  ERROR: config.py file not found!")
+            exit(1)
+    
     # Ensure output directory exists
-    output_path = Path(OUTPUT_DIR)
+    output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
     
     db_path = output_path / 'export_history.db'
