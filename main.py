@@ -124,4 +124,12 @@ Examples:
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Export interrupted by user")
+    except Exception as e:
+        print(f"\n\n❌ Unexpected error: {e}")
+    finally:
+        print("\n" + "="*60)
+        input("Press Enter to exit...")
