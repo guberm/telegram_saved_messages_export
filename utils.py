@@ -31,7 +31,22 @@ def sanitize_filename(text, max_length=50):
     # Replace spaces with underscores for filename safety
     text = text.replace(' ', '_')
     
-    return text if text else 'unnamed'
+    # Remove trailing dots and spaces (Windows doesn't allow these)
+    text = text.rstrip('._')
+    
+    # Ensure we still have a valid filename after stripping
+    if not text or len(text) == 0:
+        return 'unnamed'
+    
+    # Windows reserved names that cannot be used
+    reserved_names = {'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 
+                     'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 
+                     'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'}
+    
+    if text.upper() in reserved_names:
+        text = f'_{text}'
+    
+    return text
 
 
 def process_telegram_formatting(text):
