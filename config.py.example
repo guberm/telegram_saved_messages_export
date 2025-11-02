@@ -13,6 +13,12 @@ OUTPUT_DIR = 'telegram_saved_messages_exports'  # Directory where exports will b
 # Optional settings
 SESSION_NAME = 'telegram_session'  # Name of the session file
 
+# Google Drive Backup settings (optional)
+GOOGLE_DRIVE_BACKUP_ENABLED = False  # Set to True to enable automatic backup to Google Drive
+GOOGLE_DRIVE_CREDENTIALS_FILE = 'credentials.json'  # Path to Google Drive OAuth2 credentials
+GOOGLE_DRIVE_TOKEN_FILE = 'token.json'  # Path to store access token
+GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE = False  # Whether to keep local zip archive after upload
+
 # Example:
 # API_ID = '12345678'
 # API_HASH = 'abcdef1234567890abcdef1234567890'

@@ -5,12 +5,19 @@
 # Configuration with sensitive data
 config.py
 
+# Google Drive credentials and tokens
+credentials.json
+token.json
+
 # Export directories
 telegram_saved_messages_exports/
 telegram_exports/
 
 # Database files
 *.db
+
+# Backup archives
+*.zip
 
 # Python cache
 __pycache__/

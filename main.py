@@ -7,19 +7,33 @@ Exports saved messages from Telegram to separate HTML and Markdown files.
 import asyncio
 import argparse
 from datetime import datetime
+from pathlib import Path
 from telethon import TelegramClient
 
 # Import configuration
 try:
-    from config import API_ID, API_HASH, PHONE, OUTPUT_DIR, SESSION_NAME
-except ImportError:
-    print("⚠️  ERROR: config.py file not found!")
-    print("Please create a config.py file with your API credentials.")
-    print("You can copy config.py.example and fill in your values.")
-    exit(1)
+    from config import (API_ID, API_HASH, PHONE, OUTPUT_DIR, SESSION_NAME,
+                       GOOGLE_DRIVE_BACKUP_ENABLED, GOOGLE_DRIVE_CREDENTIALS_FILE,
+                       GOOGLE_DRIVE_TOKEN_FILE, GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE)
+except ImportError as e:
+    # Check if it's just missing Google Drive settings (old config.py)
+    try:
+        from config import API_ID, API_HASH, PHONE, OUTPUT_DIR, SESSION_NAME
+        # Set defaults for Google Drive settings
+        GOOGLE_DRIVE_BACKUP_ENABLED = False
+        GOOGLE_DRIVE_CREDENTIALS_FILE = 'credentials.json'
+        GOOGLE_DRIVE_TOKEN_FILE = 'token.json'
+        GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE = False
+        print("⚠️  Note: Using default Google Drive settings. Update config.py to customize.")
+    except ImportError:
+        print("⚠️  ERROR: config.py file not found!")
+        print("Please create a config.py file with your API credentials.")
+        print("You can copy config.py.example and fill in your values.")
+        exit(1)
 
 from database import init_database, get_export_stats
 from exporter import export_saved_messages
+from google_drive_backup import GoogleDriveBackup
 
 
 async def main():
@@ -45,6 +59,16 @@ Examples:
   
   # Export with custom output directory
   python main.py --output my_exports
+  
+  # Export and backup to Google Drive
+  python main.py --backup
+  
+  # Backup existing exports to Google Drive (no export)
+  python main.py --backup-only
+  
+  # Export, backup, and keep local archive
+  python main.py --backup --keep-archive
+```
         """
     )
     
@@ -57,6 +81,13 @@ Examples:
     
     parser.add_argument('--output', type=str, default=OUTPUT_DIR,
                        help=f'Output directory (default: {OUTPUT_DIR})')
+    
+    parser.add_argument('--backup', action='store_true',
+                       help='Backup exports to Google Drive after exporting')
+    parser.add_argument('--backup-only', action='store_true',
+                       help='Only backup existing exports to Google Drive (skip export)')
+    parser.add_argument('--keep-archive', action='store_true',
+                       help='Keep local zip archive after uploading to Google Drive')
     
     args = parser.parse_args()
     
@@ -83,6 +114,30 @@ Examples:
             print("No messages have been exported yet.")
         return
     
+    # Handle backup-only mode
+    if args.backup_only:
+        print("\n" + "="*60)
+        print("GOOGLE DRIVE BACKUP MODE")
+        print("="*60)
+        
+        backup_handler = GoogleDriveBackup(
+            credentials_file=GOOGLE_DRIVE_CREDENTIALS_FILE,
+            token_file=GOOGLE_DRIVE_TOKEN_FILE
+        )
+        
+        keep_archive = args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE
+        success = backup_handler.backup_exports(
+            current_output_dir,
+            create_archive=True,
+            keep_local_archive=keep_archive
+        )
+        
+        if success:
+            print("\n✅ Backup completed successfully!")
+        else:
+            print("\n❌ Backup failed!")
+        return
+    
     # Parse date if provided
     from_date = None
     if args.from_date:
@@ -107,6 +162,46 @@ Examples:
         print("7. Also replace the phone number with your own\n")
         return
     
+    # Pre-authenticate with Google Drive if backup is requested
+    # This ensures authentication happens before the export starts
+    should_backup = args.backup or (GOOGLE_DRIVE_BACKUP_ENABLED and not args.backup_only)
+    backup_handler = None
+    
+    if should_backup:
+        print("\n" + "="*60)
+        print("GOOGLE DRIVE PRE-AUTHENTICATION")
+        print("="*60)
+        print("Authenticating with Google Drive before starting export...")
+        print("(This ensures backup will work after export completes)\n")
+        
+        backup_handler = GoogleDriveBackup(
+            credentials_file=GOOGLE_DRIVE_CREDENTIALS_FILE,
+            token_file=GOOGLE_DRIVE_TOKEN_FILE
+        )
+        
+        # Authenticate early
+        if not backup_handler.authenticate():
+            print("\n⚠️  WARNING: Google Drive authentication failed!")
+            print("Export will continue, but backup will be skipped.\n")
+            response = input("Continue with export? (y/n): ").strip().lower()
+            if response != 'y':
+                print("Export cancelled.")
+                return
+            backup_handler = None  # Disable backup
+        else:
+            # Also verify we can access/create the backup folder
+            if not backup_handler.get_or_create_backup_folder():
+                print("\n⚠️  WARNING: Could not access Google Drive backup folder!")
+                print("Export will continue, but backup will be skipped.\n")
+                response = input("Continue with export? (y/n): ").strip().lower()
+                if response != 'y':
+                    print("Export cancelled.")
+                    return
+                backup_handler = None  # Disable backup
+            else:
+                print("\n✓ Google Drive authentication successful!")
+                print("="*60 + "\n")
+    
     # Create Telegram client
     client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
     
@@ -116,6 +211,32 @@ Examples:
         
         # Export messages
         await export_saved_messages(client, db_path, from_date=from_date, force_reexport=args.force, output_dir=current_output_dir)
+        
+        # Backup to Google Drive if pre-authenticated handler exists
+        if backup_handler is not None:
+            print("\n" + "="*60)
+            print("BACKING UP TO GOOGLE DRIVE")
+            print("="*60)
+            
+            # Use the pre-authenticated handler (no need to authenticate again)
+            keep_archive = args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE
+            
+            # Create archive and upload
+            zip_path = backup_handler.create_zip_archive(current_output_dir)
+            if zip_path:
+                file_id = backup_handler.upload_file(
+                    zip_path,
+                    delete_after_upload=not keep_archive
+                )
+                
+                if file_id:
+                    print("\n✅ Backup completed successfully!")
+                else:
+                    print("\n⚠️  Backup upload failed, but exports are saved locally")
+                    if not keep_archive and zip_path.exists():
+                        print(f"Local archive saved: {zip_path}")
+            else:
+                print("\n⚠️  Could not create backup archive")
         
     except Exception as e:
         print(f"Error: {e}")
