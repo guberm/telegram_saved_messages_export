@@ -1125,19 +1125,13 @@ class VisualExporterGUI:
                                         speed = speed_match.group(1)
                                         eta = eta_match.group(1)
                                         
-                                        # Create progress bar visualization
-                                        bar_width = 20
-                                        filled = int((percent / 100) * bar_width)
-                                        empty = bar_width - filled
-                                        progress_bar = '█' * filled + '░' * empty
-                                        
-                                        # Format display text with full info
+                                        # Format display text without visual progress bar (actual bar shows it)
                                         if size_match:
                                             current_size = size_match.group(1)
                                             total_size = size_match.group(2)
-                                            display_text = f"📥 {fname}  {percent:.1f}% [{progress_bar}] {current_size}/{total_size}"
+                                            display_text = f"📥 {fname}  {current_size}/{total_size}"
                                         else:
-                                            display_text = f"📥 {fname}  {percent:.1f}% [{progress_bar}]"
+                                            display_text = f"📥 {fname}"
                                         
                                         self.message_queue.put(("media_progress", {
                                             'percent': percent,
