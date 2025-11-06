@@ -643,6 +643,7 @@ class VisualExporterGUI:
     
     def update_secondary_progress(self, data):
         """Update secondary progress bar (for archives, downloads, etc) with optional speed/ETA"""
+        percent = 0
         if 'percent' in data:
             percent = data['percent']
             self.secondary_progress['value'] = percent
@@ -652,9 +653,13 @@ class VisualExporterGUI:
             percent = int((current / total) * 100) if total > 0 else 0
             self.secondary_progress['value'] = percent
 
-        # Compose text
+        # Compose text with percentage
         if 'text' in data:
             text = data['text']
+            # Add percentage to the text
+            if percent > 0:
+                text = f"{text} - {percent:.1f}%"
+            
             speed = data.get('speed')
             eta = data.get('eta')
             if speed or eta:
@@ -674,6 +679,7 @@ class VisualExporterGUI:
 
     def update_media_progress(self, data):
         """Update media download progress bar with speed/ETA - now updates Current Operation bar"""
+        percent = 0
         if 'percent' in data:
             percent = data['percent']
             self.secondary_progress['value'] = percent
@@ -681,6 +687,10 @@ class VisualExporterGUI:
         # Update current item label
         if 'text' in data:
             text = data['text']
+            # Add percentage to the text
+            if percent > 0:
+                text = f"{text} - {percent:.1f}%"
+            
             speed = data.get('speed')
             eta = data.get('eta')
             if speed or eta:
