@@ -679,7 +679,6 @@ class VisualExporterGUI:
 
     def update_media_progress(self, data):
         """Update media download progress bar with speed/ETA - now updates Current Operation bar"""
-        percent = 0
         if 'percent' in data:
             percent = data['percent']
             self.secondary_progress['value'] = percent
@@ -687,19 +686,17 @@ class VisualExporterGUI:
         # Update current item label
         if 'text' in data:
             text = data['text']
-            # Add percentage to the text
-            if percent > 0:
-                text = f"{text} - {percent:.1f}%"
             
+            # Add speed/ETA if available
             speed = data.get('speed')
             eta = data.get('eta')
             if speed or eta:
                 extra = []
                 if speed:
-                    extra.append(speed)
+                    extra.append(f"at {speed}")
                 if eta:
-                    extra.append(f"ETA {eta}")
-                text = f"{text} ({', '.join(extra)})"
+                    extra.append(f"ETA: {eta}")
+                text = f"{text} {' - '.join(extra)}"
             
             # Update both the progress bar text and current item label
             self.secondary_progress_text.config(text=text)
@@ -838,12 +835,11 @@ class VisualExporterGUI:
             self.main_progress['value'] = 0
             self.secondary_progress['value'] = 0
             self.secondary_progress_text.config(text="Ready")
-            self.media_progress['value'] = 0
-            self.media_progress_text.config(text="No active download")
             self.details_text.config(text="")
             self.update_status("Idle", "success")
             self.operation_label.config(text="Waiting to start...")
-            self.current_item_label.config(text="None")
+            if hasattr(self, 'current_item_label'):
+                self.current_item_label.config(text="-")
             self.progress_text.config(text="0 / 0 (0%)")
     
     def process_messages(self):
@@ -1118,6 +1114,9 @@ class VisualExporterGUI:
                                     fname = line[:pct_match.start()].strip()
                                     percent = float(pct_match.group(1))
                                     
+                                    # Extract file sizes from the line
+                                    size_match = re.search(r'\]\s+([\d.]+\s+\S?B)/([\d.]+\s+\S?B)', line)
+                                    
                                     # Extract speed and eta from the line (speed can have spaces: "274.08 KB/s")
                                     speed_match = re.search(r'at\s+([\d.]+\s+\S+/s)', line)
                                     eta_match = re.search(r'ETA:\s+(\S+)', line)
@@ -1126,16 +1125,29 @@ class VisualExporterGUI:
                                         speed = speed_match.group(1)
                                         eta = eta_match.group(1)
                                         
-                                        base_label = f'Downloading: {fname[:30]}'
+                                        # Create progress bar visualization
+                                        bar_width = 20
+                                        filled = int((percent / 100) * bar_width)
+                                        empty = bar_width - filled
+                                        progress_bar = '█' * filled + '░' * empty
+                                        
+                                        # Format display text with full info
+                                        if size_match:
+                                            current_size = size_match.group(1)
+                                            total_size = size_match.group(2)
+                                            display_text = f"📥 {fname}  {percent:.1f}% [{progress_bar}] {current_size}/{total_size}"
+                                        else:
+                                            display_text = f"📥 {fname}  {percent:.1f}% [{progress_bar}]"
+                                        
                                         self.message_queue.put(("media_progress", {
                                             'percent': percent,
-                                            'text': base_label,
+                                            'text': display_text,
                                             'speed': speed,
                                             'eta': eta
                                         }))
                                         self.message_queue.put(("secondary_progress", {
                                             'percent': percent,
-                                            'text': base_label,
+                                            'text': display_text,
                                             'speed': speed,
                                             'eta': eta
                                         }))
