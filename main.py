@@ -117,7 +117,7 @@ Examples:
     # Handle backup-only mode
     if args.backup_only:
         print("\n" + "="*60)
-        print("GOOGLE DRIVE BACKUP MODE")
+        print("GOOGLE DRIVE BACKUP MODE (PER-FOLDER)")
         print("="*60)
         
         backup_handler = GoogleDriveBackup(
@@ -125,17 +125,45 @@ Examples:
             token_file=GOOGLE_DRIVE_TOKEN_FILE
         )
         
-        keep_archive = args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE
-        success = backup_handler.backup_exports(
+        # Authenticate
+        if not backup_handler.authenticate():
+            print("\n❌ Google Drive authentication failed!")
+            return
+        
+        if not backup_handler.get_or_create_backup_folder():
+            print("\n❌ Could not access Google Drive backup folder!")
+            return
+        
+        # Use per-folder backup
+        cleanup = not (args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE)
+        stats = backup_handler.backup_individual_folders(
             current_output_dir,
-            create_archive=True,
-            keep_local_archive=keep_archive
+            db_path,
+            cleanup_after_upload=cleanup
         )
         
-        if success:
+        print("\n" + "="*60)
+        print(f"BACKUP SUMMARY")
+        print("="*60)
+        print(f"✓ Successfully uploaded: {stats['success']}")
+        print(f"❌ Failed: {stats['failed']}")
+        print(f"⏭️  Skipped (already backed up): {stats['skipped']}")
+        
+        # Show database backup status
+        if 'database_backed_up' in stats:
+            if stats['database_backed_up']:
+                print(f"📊 Database backup: ✓ Success")
+            else:
+                print(f"📊 Database backup: ❌ Failed")
+        
+        if stats['success'] > 0:
+            if cleanup:
+                print(f"\n✓ Cleaned up {stats['success']} folders and archives")
             print("\n✅ Backup completed successfully!")
+        elif stats['failed'] > 0:
+            print("\n⚠️  Some backups failed!")
         else:
-            print("\n❌ Backup failed!")
+            print("\n✓ Nothing to backup (all up to date)")
         return
     
     # Parse date if provided
@@ -215,28 +243,43 @@ Examples:
         # Backup to Google Drive if pre-authenticated handler exists
         if backup_handler is not None:
             print("\n" + "="*60)
-            print("BACKING UP TO GOOGLE DRIVE")
+            print("BACKING UP TO GOOGLE DRIVE (PER-FOLDER)")
             print("="*60)
+            print("Note: Each message folder will be archived and uploaded separately.")
+            print("Source folders and archives will be deleted after successful upload.\n")
             
-            # Use the pre-authenticated handler (no need to authenticate again)
-            keep_archive = args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE
+            # Use per-folder backup with cleanup
+            cleanup = not (args.keep_archive or GOOGLE_DRIVE_KEEP_LOCAL_ARCHIVE)
+            stats = backup_handler.backup_individual_folders(
+                current_output_dir,
+                db_path,
+                cleanup_after_upload=cleanup
+            )
             
-            # Create archive and upload
-            zip_path = backup_handler.create_zip_archive(current_output_dir)
-            if zip_path:
-                file_id = backup_handler.upload_file(
-                    zip_path,
-                    delete_after_upload=not keep_archive
-                )
-                
-                if file_id:
-                    print("\n✅ Backup completed successfully!")
+            print("\n" + "="*60)
+            print(f"BACKUP SUMMARY")
+            print("="*60)
+            print(f"✓ Successfully uploaded: {stats['success']}")
+            print(f"❌ Failed: {stats['failed']}")
+            print(f"⏭️  Skipped (already backed up): {stats['skipped']}")
+            
+            # Show database backup status
+            if 'database_backed_up' in stats:
+                if stats['database_backed_up']:
+                    print(f"📊 Database backup: ✓ Success")
                 else:
-                    print("\n⚠️  Backup upload failed, but exports are saved locally")
-                    if not keep_archive and zip_path.exists():
-                        print(f"Local archive saved: {zip_path}")
+                    print(f"📊 Database backup: ❌ Failed")
+            
+            if stats['success'] > 0:
+                if cleanup:
+                    print(f"\n✓ Cleaned up {stats['success']} folders and archives")
+                else:
+                    print(f"\n⚠️  Local folders and archives kept (--keep-archive)")
+                print("\n✅ Backup completed successfully!")
+            elif stats['failed'] > 0:
+                print("\n⚠️  Some backups failed, check messages above")
             else:
-                print("\n⚠️  Could not create backup archive")
+                print("\n✓ Nothing to backup (all up to date)")
         
     except Exception as e:
         print(f"Error: {e}")

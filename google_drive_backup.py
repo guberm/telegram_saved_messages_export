@@ -269,6 +269,229 @@ class GoogleDriveBackup:
             print(f"❌ Error uploading file: {e}")
             return None
     
+    def _delete_folder_windows(self, folder_path, folder_name):
+        """Delete a folder with Windows-specific error handling.
+        
+        Args:
+            folder_path: Path object pointing to the folder
+            folder_name: Name of the folder (for display)
+        """
+        import time
+        import stat
+        
+        def remove_readonly(func, path, exc_info):
+            """Error handler for Windows readonly files."""
+            import os
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        
+        # Try normal deletion first
+        try:
+            import shutil
+            shutil.rmtree(folder_path, onerror=remove_readonly)
+            print(f"  ✓ Deleted folder: {folder_name}")
+            return
+        except PermissionError:
+            # Folder might be locked, wait and retry
+            print(f"  ⏳ Folder locked, waiting...")
+            time.sleep(1)
+            
+        # Retry with forced permissions
+        try:
+            import shutil
+            # Force remove readonly attributes on all files
+            for root, dirs, files in folder_path.walk():
+                for name in files:
+                    file_path = root / name
+                    try:
+                        file_path.chmod(stat.S_IWRITE)
+                    except:
+                        pass
+            
+            shutil.rmtree(folder_path, onerror=remove_readonly)
+            print(f"  ✓ Deleted folder: {folder_name} (after retry)")
+            return
+        except Exception as e:
+            # Still failed, raise for caller to handle
+            raise Exception(f"Cannot delete folder after retries: {e}")
+    
+    def create_folder_archive(self, folder_path):
+        """Create a zip archive of a single message folder.
+        
+        Args:
+            folder_path: Path object pointing to the message folder
+            
+        Returns:
+            Path to the created zip file or None on error
+        """
+        try:
+            folder_path = Path(folder_path)
+            if not folder_path.exists() or not folder_path.is_dir():
+                print(f"❌ Folder not found: {folder_path}")
+                return None
+            
+            # Create archive in same parent directory as folder
+            zip_filename = f"{folder_path.name}.zip"
+            zip_path = folder_path.parent / zip_filename
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for item in folder_path.rglob('*'):
+                    if item.is_file():
+                        arcname = item.relative_to(folder_path.parent)
+                        zipf.write(item, arcname)
+            
+            file_size_mb = zip_path.stat().st_size / (1024 * 1024)
+            return zip_path
+            
+        except Exception as e:
+            print(f"❌ Error creating folder archive: {e}")
+            return None
+    
+    def backup_individual_folders(self, export_dir, db_path, cleanup_after_upload=True):
+        """Backup each message folder individually with database tracking.
+        
+        Args:
+            export_dir: Path to the export directory
+            db_path: Path to the database file
+            cleanup_after_upload: Whether to delete folder and archive after upload
+            
+        Returns:
+            Dictionary with statistics
+        """
+        from database import (get_folders_to_backup, mark_backup_started, 
+                             mark_backup_completed, mark_backup_failed)
+        import shutil
+        
+        export_path = Path(export_dir)
+        if not export_path.exists():
+            print(f"❌ Export directory not found: {export_dir}")
+            return {'success': 0, 'failed': 0, 'skipped': 0}
+        
+        # Get folders that need backup
+        folders_to_backup = get_folders_to_backup(db_path, export_dir)
+        
+        if not folders_to_backup:
+            print("✓ All folders already backed up")
+            return {'success': 0, 'failed': 0, 'skipped': len(list(export_path.iterdir()))}
+        
+        print(f"\n📦 Found {len(folders_to_backup)} folders to backup")
+        
+        stats = {'success': 0, 'failed': 0, 'skipped': 0}
+        
+        for idx, folder in enumerate(folders_to_backup, 1):
+            folder_name = folder.name
+            print(f"\n[{idx}/{len(folders_to_backup)}] Processing: {folder_name}")
+            
+            try:
+                # Create archive
+                print(f"  - Creating archive...")
+                zip_path = self.create_folder_archive(folder)
+                if not zip_path:
+                    mark_backup_failed(db_path, folder_name, "Failed to create archive")
+                    stats['failed'] += 1
+                    continue
+                
+                archive_size = zip_path.stat().st_size
+                size_mb = archive_size / (1024 * 1024)
+                print(f"  - Archive created: {zip_path.name} ({size_mb:.2f} MB)")
+                
+                # Mark as started in DB
+                mark_backup_started(db_path, folder_name, str(folder), zip_path.name, archive_size)
+                
+                # Upload to Google Drive
+                print(f"  - Uploading to Google Drive...")
+                file_id = self.upload_file(zip_path, delete_after_upload=False)
+                
+                if file_id:
+                    # Mark as completed in DB
+                    mark_backup_completed(db_path, folder_name, file_id)
+                    print(f"  ✓ Uploaded successfully")
+                    stats['success'] += 1
+                    
+                    # Cleanup if requested
+                    if cleanup_after_upload:
+                        # Delete the archive first (easier to delete)
+                        try:
+                            zip_path.unlink()
+                            print(f"  ✓ Deleted archive: {zip_path.name}")
+                        except Exception as e:
+                            print(f"  ⚠️  Archive cleanup warning: {e}")
+                        
+                        # Delete the source folder with Windows-specific handling
+                        try:
+                            self._delete_folder_windows(folder, folder_name)
+                        except Exception as e:
+                            print(f"  ⚠️  Folder cleanup warning: {e}")
+                            print(f"     You may need to manually delete: {folder_name}")
+                else:
+                    mark_backup_failed(db_path, folder_name, "Upload failed")
+                    stats['failed'] += 1
+                    print(f"  ❌ Upload failed")
+                    
+            except Exception as e:
+                error_msg = str(e)
+                print(f"  ❌ Error: {error_msg}")
+                mark_backup_failed(db_path, folder_name, error_msg)
+                stats['failed'] += 1
+        
+        # Upload the database file after all folders are processed
+        if stats['success'] > 0:
+            print(f"\n" + "="*50)
+            print("📊 Backing up database file...")
+            db_file_id = self.upload_database_file(db_path)
+            if db_file_id:
+                stats['database_backed_up'] = True
+            else:
+                stats['database_backed_up'] = False
+                print("⚠️  Warning: Database backup failed, but folder backups completed")
+        
+        return stats
+    
+    def upload_database_file(self, db_path):
+        """Upload the SQLite database file to Google Drive.
+        
+        Args:
+            db_path: Path to the database file
+            
+        Returns:
+            File ID on success, None on error
+        """
+        try:
+            db_path = Path(db_path)
+            if not db_path.exists():
+                print(f"⚠️  Database file not found: {db_path}")
+                return None
+            
+            # Create a timestamped filename for the database backup
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            db_backup_name = f"export_history_{timestamp}.db"
+            
+            # Create a temporary copy with timestamp
+            temp_db_path = db_path.parent / db_backup_name
+            import shutil
+            shutil.copy2(db_path, temp_db_path)
+            
+            print(f"\n📊 Uploading database backup: {db_backup_name}")
+            
+            # Upload to Google Drive
+            file_id = self.upload_file(temp_db_path, delete_after_upload=True)
+            
+            if file_id:
+                size_kb = temp_db_path.stat().st_size / 1024 if temp_db_path.exists() else 0
+                print(f"  ✓ Database backed up to Google Drive ({size_kb:.2f} KB)")
+                return file_id
+            else:
+                # Clean up temp file if upload failed
+                if temp_db_path.exists():
+                    temp_db_path.unlink()
+                print(f"  ❌ Database upload failed")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error uploading database: {e}")
+            return None
+    
     def backup_exports(self, export_dir, create_archive=True, keep_local_archive=False):
         """Backup entire export directory to Google Drive.
         

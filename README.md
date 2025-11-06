@@ -9,11 +9,13 @@ Export your Telegram saved messages to organized HTML and Markdown files with me
 - **📁 Individual Message Folders** - Each message gets its own folder
 - **🎨 Telegram-like HTML Styling** - HTML files look like actual Telegram messages  
 - **🖼️ Media Downloads** - Automatically downloads and saves images, videos, etc.
-- **📊 SQLite Database Tracking** - Tracks exported messages to avoid duplicates
+- **📊 SQLite Database Tracking** - Tracks exported messages and backups
 - **🔄 Incremental Exports** - Only exports new messages by default
 - **📈 Export Statistics** - View export stats and progress
 - **🔗 Message Links** - Links to original messages in Telegram
-- **☁️ Google Drive Backup** - Automatic backup to Google Drive (optional)
+- **☁️ Google Drive Backup** - Per-folder backup with automatic cleanup
+- **🔁 Resume Capability** - Interrupted backups resume where they left off
+- **🧹 Auto Cleanup** - Deletes folders after successful upload (optional)
 
 ## 📋 Setup
 
@@ -203,22 +205,42 @@ python main.py --backup --keep-archive
 
 ## Google Drive Backup
 
-The tool can automatically backup your exports to Google Drive:
+The tool can automatically backup your exports to Google Drive with advanced features:
 
-- Creates timestamped zip archives
-- Uploads to a dedicated backup folder
-- Optional: Keep or delete local archives
-- Full setup guide: [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md)
+- **Per-Folder Archives** - Each message folder backed up separately
+- **Database Tracking** - SQLite tracks upload status for each folder
+- **Resume Capability** - Interrupted backups automatically resume
+- **Automatic Cleanup** - Deletes folders/archives after successful upload (saves disk space)
+- **Progress Reporting** - See detailed progress for each folder
+- **Failure Isolation** - One failed folder doesn't affect others
 
 ### Quick Start
 
-1. Set up Google Drive API credentials (see GOOGLE_DRIVE_SETUP.md)
-2. Place `credentials.json` in the project directory
-3. Enable in `config.py`:
+1. Set up Google Drive API credentials (see [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md))
+2. Rename downloaded file to `credentials.json` in project directory
+3. Add your email as test user in OAuth consent screen
+4. Enable in `config.py`:
    ```python
    GOOGLE_DRIVE_BACKUP_ENABLED = True
    ```
-4. Run normally: `python main.py`
+5. Run: `py main.py --backup` (or `python main.py --backup`)
+
+### How It Works
+
+```
+For each message folder:
+1. Create ZIP archive
+2. Upload to Google Drive
+3. Track in database
+4. Delete folder & archive (unless --keep-archive)
+5. Resume automatically if interrupted
+```
+
+### Guides
+
+- **Complete Guide**: [PER_FOLDER_BACKUP_GUIDE.md](PER_FOLDER_BACKUP_GUIDE.md)
+- **Setup Instructions**: [GOOGLE_DRIVE_SETUP.md](GOOGLE_DRIVE_SETUP.md)
+- **Implementation Details**: [PER_FOLDER_IMPLEMENTATION_SUMMARY.md](PER_FOLDER_IMPLEMENTATION_SUMMARY.md)
 
 ## Notes
 
