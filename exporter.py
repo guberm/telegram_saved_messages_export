@@ -191,10 +191,13 @@ async def export_saved_messages(client, db_path, from_date=None, force_reexport=
                         media_filename = await safe_operation(
                             client,
                             download_media,
-                            client, message, message_folder, "media"
+                            client, message, message_folder, "media", cancel_event
                         )
                         print(f"  - Media downloaded: {media_filename}")
                     except Exception as e:
+                        if cancel_event and cancel_event.is_set():
+                            print(f"  ⚠️ Media download cancelled")
+                            break
                         print(f"  ⚠️ Failed to download media: {e}")
                         print(f"  - Continuing without media...")
                 else:
@@ -255,14 +258,12 @@ async def export_saved_messages(client, db_path, from_date=None, force_reexport=
                             print(f"❌ Failed to reconnect, skipping message {message.id}")
                             break
                     
-                    # Allow cancellation during wait
-                    for _ in range(30):  # up to ~3s in 0.1s slices
-                        if cancel_event and cancel_event.is_set():
-                            print("⚠️ Cancelled during retry wait.")
-                            break
-                        await asyncio.sleep(0.1)
+                    # Check cancellation before retry wait
                     if cancel_event and cancel_event.is_set():
+                        print("⚠️ Cancelled during retry.")
                         break
+                    
+                    await asyncio.sleep(3)
                 else:
                     print(f"❌ Failed to export message {message.id} after {max_message_retries} attempts, skipping...")
                     

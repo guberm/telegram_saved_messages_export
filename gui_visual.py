@@ -350,6 +350,41 @@ class VisualExporterGUI:
         )
         self.secondary_progress_text.pack()
 
+        # Current item being processed
+        item_container = ttk.Frame(self.current_activity_content)
+        item_container.pack(fill=X, pady=(10, 20), padx=10)
+        
+        ttk.Label(
+            item_container,
+            text="📁 Current Item:",
+            font=("Segoe UI", 10, "bold"),
+            foreground="#f8f9fa"
+        ).pack(anchor=W, pady=(0, 5))
+        
+        self.current_item_label = ttk.Label(
+            item_container,
+            text="-",
+            font=("Segoe UI", 9),
+            foreground="#adb5bd",
+            wraplength=700,
+            justify=LEFT
+        )
+        self.current_item_label.pack(anchor=W)
+
+        # Current message details
+        details_container = ttk.Frame(self.current_activity_content)
+        details_container.pack(fill=X, pady=(0, 15), padx=10)
+        
+        self.details_text = ttk.Label(
+            details_container,
+            text="",
+            font=("Consolas", 9),
+            foreground="#adb5bd",
+            justify=LEFT,
+            wraplength=850
+        )
+        self.details_text.pack(anchor=W)
+
         # ===== LIVE METRICS PANEL (always visible) =====
         stats_panel = ttk.Labelframe(
             self.current_activity_content,
@@ -415,6 +450,13 @@ class VisualExporterGUI:
             self.metric_retries.config(text=str(self.metrics['current_retries']))
             self.metric_conn.config(text=self.metrics['connection_status'])
             self.metric_error.config(text=self.metrics['last_error'][:50] + ('…' if len(self.metrics['last_error'])>50 else ''))
+            
+            # Update top stat cards with current session progress
+            if self.metrics['total_messages'] > 0:
+                self.messages_label.config(text=f"{self.metrics['exported_messages']:,}")
+                # Show percentage for visual feedback
+                percent = int((self.metrics['exported_messages'] / self.metrics['total_messages']) * 100) if self.metrics['total_messages'] > 0 else 0
+                self.backup_label.config(text=f"{percent}%")
 
             media_line = '-'
             if self.metrics['media_file']:
@@ -630,6 +672,40 @@ class VisualExporterGUI:
         if hasattr(self, 'secondary_tooltip') and self.secondary_tooltip:
             self.secondary_tooltip.update_text(self.secondary_progress_text.cget('text'))
 
+    def update_media_progress(self, data):
+        """Update media download progress bar with speed/ETA - now updates Current Operation bar"""
+        if 'percent' in data:
+            percent = data['percent']
+            self.secondary_progress['value'] = percent
+        
+        # Update current item label
+        if 'text' in data:
+            text = data['text']
+            speed = data.get('speed')
+            eta = data.get('eta')
+            if speed or eta:
+                extra = []
+                if speed:
+                    extra.append(speed)
+                if eta:
+                    extra.append(f"ETA {eta}")
+                text = f"{text} ({', '.join(extra)})"
+            
+            # Update both the progress bar text and current item label
+            self.secondary_progress_text.config(text=text)
+            self.current_item_label.config(text=text)
+        
+        self.root.update_idletasks()
+    
+    def update_details(self, text):
+        """Update the details text area with current folder/file being processed"""
+        # Show only the current item, not a buffer
+        self.details_text.config(text=text)
+        # Also update the current item label
+        if hasattr(self, 'current_item_label'):
+            self.current_item_label.config(text=text)
+        self.root.update_idletasks()
+
     class _Tooltip:
         def __init__(self, widget, text=""):
             self.widget = widget
@@ -752,6 +828,9 @@ class VisualExporterGUI:
             self.main_progress['value'] = 0
             self.secondary_progress['value'] = 0
             self.secondary_progress_text.config(text="Ready")
+            self.media_progress['value'] = 0
+            self.media_progress_text.config(text="No active download")
+            self.details_text.config(text="")
             self.update_status("Idle", "success")
             self.operation_label.config(text="Waiting to start...")
             self.current_item_label.config(text="None")
@@ -769,10 +848,14 @@ class VisualExporterGUI:
                     self.update_progress(data['current'], data['total'], data.get('item', ''))
                 elif msg_type == "secondary_progress":
                     self.update_secondary_progress(data)
+                elif msg_type == "media_progress":
+                    self.update_media_progress(data)
                 elif msg_type == "operation":
                     self.operation_label.config(text=data['text'])
                 elif msg_type == "toast":
                     self.show_toast(data['title'], data['message'], data.get('duration', 3000))
+                elif msg_type == "details":
+                    self.update_details(data['text'])
                 
         except queue.Empty:
             pass
@@ -895,7 +978,8 @@ class VisualExporterGUI:
                     }))
                     
                     # Check stop flag before export
-                    if not self.is_running:
+                    if not self.is_running or self.cancel_event.is_set():
+                        await client.disconnect()
                         return
                     
                     await export_saved_messages(
@@ -908,7 +992,7 @@ class VisualExporterGUI:
                     )
                     
                     # Check stop flag after export
-                    if not self.is_running:
+                    if not self.is_running or self.cancel_event.is_set():
                         self.message_queue.put(("activity", {
                             'icon': '⚠️',
                             'title': 'Export Stopped',
@@ -980,9 +1064,10 @@ class VisualExporterGUI:
                             log_text.update()
                 
                 # Skip progress bar messages from GUI updates
-                    if message.startswith('\r'):
-                        # Normalize message (remove leading CR)
-                        cr_msg = message.lstrip('\r')
+                    if message.startswith('\r') or '\r' in message:
+                        # Normalize message (remove leading CR and spaces)
+                        cr_msg = message.lstrip('\r').lstrip()
+                        
                         # Pattern: 📦 Archiving: 45.5% (10/22) - filename.jpg
                         archive_match = re.search(r'📦 Archiving: ([\d.]+)% \((\d+)/(\d+)\) - (.+?)(?: at ([^\s]+/s) - ETA: (\S+))?$', cr_msg)
                         if archive_match:
@@ -1007,18 +1092,88 @@ class VisualExporterGUI:
                             return
 
                         # Download progress with optional filename, speed and ETA
-                        # Example: 📥 filename.ext  12.3% [████░░░] 1.2MB/10MB at 500KB/s - ETA: 3s
-                        # Primary pattern with icon
-                        dl_match = re.search(r'📥\s+(?:(?P<name>.+?)\s+)?(?P<percent>\d+(?:\.\d+)?)%.*?at\s+(?P<speed>[^\s]+/s)\s+-\s+ETA:\s+(?P<eta>\S+)', cr_msg)
-                        # Fallback pattern (maybe missing icon at start)
+                        # Example: 📥 1102.mp4  14.0% [██░░...] 256.0 KB/2.56 MB at 228.21 KB/s - ETA: 10s
+                        
+                        # FINAL SIMPLE SOLUTION: Split by emoji, then extract percent/speed/eta
+                        if cr_msg.startswith('📥'):
+                            try:
+                                # Remove emoji (keep all original spacing)
+                                line = cr_msg[2:].lstrip()  # Skip emoji (2 chars) and left whitespace
+                                
+                                # Find the LAST occurrence of XX.X% pattern (before progress bar)
+                                # This handles filenames with spaces correctly
+                                pct_match = re.search(r'\s+(\d+(?:\.\d+)?)%\s+\[', line)
+                                if pct_match:
+                                    # Everything before the matched pattern is the filename
+                                    fname = line[:pct_match.start()].strip()
+                                    percent = float(pct_match.group(1))
+                                    
+                                    # Extract speed and eta from the line (speed can have spaces: "274.08 KB/s")
+                                    speed_match = re.search(r'at\s+([\d.]+\s+\S+/s)', line)
+                                    eta_match = re.search(r'ETA:\s+(\S+)', line)
+                                    
+                                    if speed_match and eta_match:
+                                        speed = speed_match.group(1)
+                                        eta = eta_match.group(1)
+                                        
+                                        base_label = f'Downloading: {fname[:30]}'
+                                        self.message_queue.put(("media_progress", {
+                                            'percent': percent,
+                                            'text': base_label,
+                                            'speed': speed,
+                                            'eta': eta
+                                        }))
+                                        self.message_queue.put(("secondary_progress", {
+                                            'percent': percent,
+                                            'text': base_label,
+                                            'speed': speed,
+                                            'eta': eta
+                                        }))
+                                        self.root.update_idletasks()
+                                        return
+                            except Exception as e:
+                                pass  # Silently continue to fallback patterns
+                        
+                        # OLD PATTERNS BELOW (fallback)
+                        dl_match = None
+                        
                         if not dl_match:
-                            dl_match = re.search(r'^(?:(?P<name>.+?)\s+)?(?P<percent>\d+(?:\.\d+)?)%\s+\[[█░]+\].*?at\s+(?P<speed>[^\s]+/s)\s+-\s+ETA:\s+(?P<eta>\S+)', cr_msg)
+                            # Pattern 2: @ prefix with flexible spaces
+                            dl_match = re.search(r'@(?P<name>\S+\s+\([^\)]+\)\.\S+)\s+(?P<percent>\d+(?:\.\d+)?)%\s+\[[█░]+\]\s+(?P<current>[\d.]+\s+\S?B)/(?P<total>[\d.]+\s+\S?B)\s+at\s+(?P<speed>[^\s]+/s)\s+-\s+ETA:\s+(?P<eta>\S+)', cr_msg)
+                            if dl_match:
+                                fname = dl_match.group('name').strip()
+                        
+                        if not dl_match:
+                            # Pattern 3: filename.ext with flexible spaces
+                            dl_match = re.search(r'(?P<name>\S+\.\S+)\s+(?P<percent>\d+(?:\.\d+)?)%\s+\[[█░]+\]\s+(?P<current>[\d.]+\s+\S?B)/(?P<total>[\d.]+\s+\S?B)\s+at\s+(?P<speed>[^\s]+/s)\s+-\s+ETA:\s+(?P<eta>\S+)', cr_msg)
+                            if dl_match:
+                                fname = dl_match.group('name').strip()
+                        
+                        if not dl_match:
+                            # Pattern 4: Generic fallback - just percent/speed/eta
+                            dl_match = re.search(r'(?P<percent>\d+(?:\.\d+)?)%.*?at\s+(?P<speed>[^\s]+/s)\s+-\s+ETA:\s+(?P<eta>\S+)', cr_msg)
+                            if dl_match:
+                                fname = None
+                        
                         if dl_match:
                             percent = float(dl_match.group('percent'))
-                            fname = dl_match.group('name')
+                            if 'fname' not in locals():
+                                fname = dl_match.groupdict().get('name', None)
+                                if fname:
+                                    fname = fname.strip()
+                            speed = dl_match.group('speed')
+                            eta = dl_match.group('eta')
                             speed = dl_match.group('speed')
                             eta = dl_match.group('eta')
                             base_label = f'Downloading: {fname[:30]}' if fname else 'Downloading media'
+                            # Update media progress bar
+                            self.message_queue.put(("media_progress", {
+                                'percent': percent,
+                                'text': base_label,
+                                'speed': speed,
+                                'eta': eta
+                            }))
+                            # Also update secondary for backward compatibility
                             self.message_queue.put(("secondary_progress", {
                                 'percent': percent,
                                 'text': base_label,
@@ -1038,6 +1193,21 @@ class VisualExporterGUI:
                 # Pattern: [1/123] Processing message 12345...
                 # Normalize leading spaces/newlines so regex matches lines like "\n[1/7055] ..."
                 norm_msg = message.lstrip()
+                
+                # Pattern: Fetching saved messages (long operation indicator)
+                if 'Fetching saved messages' in norm_msg:
+                    self.message_queue.put(("operation", {
+                        'text': '🔄 Fetching saved messages... (this may take several minutes)'
+                    }))
+                    self.message_queue.put(("details", {
+                        'text': '⏳ Please wait - loading message list from Telegram...'
+                    }))
+                    # Show indeterminate progress
+                    self.main_progress.config(mode='indeterminate')
+                    self.main_progress.start(10)
+                    self.root.update_idletasks()
+                    return
+                
                 progress_match = re.match(r'\[(\d+)/(\d+)\] Processing message (\d+)', norm_msg)
                 if progress_match:
                     current = int(progress_match.group(1))
@@ -1077,10 +1247,17 @@ class VisualExporterGUI:
                         self.metrics['skipped_messages'] = 0
                         self._export_start_time = now_ts
                         self._update_metrics_labels()
+                        # Stop indeterminate progress and switch to determinate
+                        self.main_progress.stop()
+                        self.main_progress.config(mode='determinate')
+                        self.main_progress['value'] = 0
                         self.message_queue.put(("progress", {
                             'current': 0,
                             'total': total,
                             'item': 'Initializing...'
+                        }))
+                        self.message_queue.put(("details", {
+                            'text': f'📊 Found {total:,} messages to process'
                         }))
                         self.root.update_idletasks()
                 
@@ -1089,11 +1266,23 @@ class VisualExporterGUI:
                     self.message_queue.put(("operation", {
                         'text': '📥 Downloading media files...'
                     }))
+                    # Initialize media progress bar
+                    self.message_queue.put(("media_progress", {
+                        'percent': 0,
+                        'text': 'Starting download...'
+                    }))
                     self.metrics['media_file'] = ''
                     self.metrics['media_percent'] = 0.0
                     self.metrics['media_speed'] = ''
                     self.metrics['media_eta'] = ''
                     self._update_metrics_labels()
+                    self.root.update_idletasks()
+                elif 'Media downloaded successfully' in norm_msg or 'Media renamed to:' in norm_msg:
+                    # Clear media progress when done
+                    self.message_queue.put(("media_progress", {
+                        'percent': 100,
+                        'text': 'Download complete'
+                    }))
                     self.root.update_idletasks()
                 elif 'Skipped' in norm_msg and 'already exported messages' in norm_msg:
                     skipped_match = re.search(r'Skipped (\d+) already exported messages', norm_msg)
@@ -1123,6 +1312,26 @@ class VisualExporterGUI:
                     if final_exported_match:
                         self.metrics['exported_messages'] = int(final_exported_match.group(1))
                         self._update_metrics_labels()
+                
+                # Capture detailed processing steps
+                if 'telegram_saved_messages_exports' in norm_msg and 'msg' in norm_msg:
+                    # Full folder path output - show as current folder
+                    folder_match = re.search(r'(20\d{6}_\d{6}_msg\d+_.+?)(?:\s|$)', norm_msg)
+                    if folder_match:
+                        folder_name = folder_match.group(1)
+                        self.message_queue.put(("details", {'text': f"📁 {folder_name}"}))
+                elif norm_msg.startswith('✓ Exported') and '/' in norm_msg:
+                    # Completion line with folder name
+                    exported_match = re.search(r'✓ Exported \d+/\d+: (.+)', norm_msg)
+                    if exported_match:
+                        folder_name = exported_match.group(1).strip()
+                        self.message_queue.put(("details", {'text': f"✓ {folder_name}"}))
+                elif 'Message took:' in norm_msg:
+                    # Timing statistics - extract just the timing part
+                    timing_match = re.search(r'Message took: ([\d.]+s)', norm_msg)
+                    if timing_match:
+                        timing = timing_match.group(1)
+                        self.message_queue.put(("details", {'text': f"⏱️  {timing}"}))
             
             builtins.print = custom_print
             
@@ -1473,6 +1682,44 @@ class VisualExporterGUI:
         def clear_logs():
             log_text.delete(1.0, tk.END)
             log_text.insert(tk.END, "=== Logs Cleared ===\n\n")
+        
+        def export_logs():
+            """Export logs to a text file"""
+            from tkinter import filedialog
+            import os
+            
+            # Get log content
+            log_content = log_text.get(1.0, tk.END)
+            
+            # Ask user where to save
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            default_filename = f"telegram_export_logs_{timestamp}.txt"
+            
+            filepath = filedialog.asksaveasfilename(
+                parent=log_window,
+                title="Export Logs",
+                defaultextension=".txt",
+                initialfile=default_filename,
+                filetypes=[
+                    ("Text files", "*.txt"),
+                    ("All files", "*.*")
+                ]
+            )
+            
+            if filepath:
+                try:
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(log_content)
+                    self.show_toast("✅ Export Success", f"Logs saved to {os.path.basename(filepath)}")
+                except Exception as e:
+                    self.show_toast("❌ Export Failed", f"Error: {str(e)}", bootstyle="danger")
+        
+        ttk.Button(
+            btn_frame,
+            text="💾 Export Logs",
+            command=export_logs,
+            bootstyle="success-outline"
+        ).pack(side=LEFT, padx=5)
         
         ttk.Button(
             btn_frame,

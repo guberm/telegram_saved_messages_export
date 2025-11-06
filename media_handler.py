@@ -23,17 +23,22 @@ def format_file_size(size_bytes):
 class DownloadProgress:
     """Progress tracker for media downloads with filename awareness."""
     
-    def __init__(self, total_size, file_name=None):
+    def __init__(self, total_size, file_name=None, cancel_event=None):
         self.total_size = total_size
         self.downloaded = 0
         self.start_time = time.time()
         self.last_update = 0
         self.completed = False
+        self.cancel_event = cancel_event
         # Store a short display name for progress output
         self.file_name = (file_name[:40] + '…') if file_name and len(file_name) > 40 else file_name
         
     def __call__(self, current, total):
         """Progress callback function."""
+        # Check for cancellation immediately
+        if self.cancel_event and self.cancel_event.is_set():
+            raise Exception("Download cancelled by user")
+        
         self.downloaded = current
         self.total_size = total
         
@@ -41,6 +46,10 @@ class DownloadProgress:
         now = time.time()
         if (current - self.last_update > 256 * 1024) or (now - self.start_time > 0.75 and now - self.last_update > 0.75):
             self.last_update = current
+            
+            # Check cancellation again during update
+            if self.cancel_event and self.cancel_event.is_set():
+                raise Exception("Download cancelled by user")
             
             if total > 0:
                 percentage = (current / total) * 100
@@ -116,9 +125,14 @@ def cleanup_existing_media(message_folder, filename_base):
         print(f"    - Warning: Could not clean up existing media files: {e}")
 
 
-async def download_media(client, message, message_folder, filename_base):
+async def download_media(client, message, message_folder, filename_base, cancel_event=None):
     """Download media from a message and save it in the message folder."""
     if not message.media:
+        return None
+    
+    # Check cancellation before starting
+    if cancel_event and cancel_event.is_set():
+        print(f"    - Media download cancelled before start")
         return None
     
     try:
@@ -155,7 +169,7 @@ async def download_media(client, message, message_folder, filename_base):
                             file_display_name = attr.file_name
                             break
                 if doc.size:
-                    progress_callback = DownloadProgress(doc.size, file_name=file_display_name)
+                    progress_callback = DownloadProgress(doc.size, file_name=file_display_name, cancel_event=cancel_event)
         except Exception as e:
             print(f"    - Note: Couldn't extract original filename: {e}")
         
