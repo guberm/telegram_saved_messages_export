@@ -21,23 +21,25 @@ def format_file_size(size_bytes):
 
 
 class DownloadProgress:
-    """Progress tracker for media downloads."""
+    """Progress tracker for media downloads with filename awareness."""
     
-    def __init__(self, total_size):
+    def __init__(self, total_size, file_name=None):
         self.total_size = total_size
         self.downloaded = 0
         self.start_time = time.time()
         self.last_update = 0
         self.completed = False
+        # Store a short display name for progress output
+        self.file_name = (file_name[:40] + '…') if file_name and len(file_name) > 40 else file_name
         
     def __call__(self, current, total):
         """Progress callback function."""
         self.downloaded = current
         self.total_size = total
         
-        # Update progress every 512KB or every 1 second for more responsive updates
+        # Update progress every 256KB or every 0.75 second for more responsive UI
         now = time.time()
-        if (current - self.last_update > 512 * 1024) or (now - self.start_time > 1 and now - self.last_update > 1):
+        if (current - self.last_update > 256 * 1024) or (now - self.start_time > 0.75 and now - self.last_update > 0.75):
             self.last_update = current
             
             if total > 0:
@@ -45,19 +47,14 @@ class DownloadProgress:
                 downloaded_str = format_file_size(current)
                 total_str = format_file_size(total)
                 
-                # Calculate speed
+                # Calculate speed & ETA
                 elapsed = now - self.start_time
                 if elapsed > 0:
                     speed = current / elapsed
                     speed_str = format_file_size(speed) + "/s"
-                    
-                    # Estimate remaining time
-                    if speed > 0:
-                        remaining_bytes = total - current
-                        eta_seconds = remaining_bytes / speed
-                        eta_str = f"{int(eta_seconds)}s"
-                    else:
-                        eta_str = "∞"
+                    remaining_bytes = max(total - current, 0)
+                    eta_seconds = int(remaining_bytes / speed) if speed > 0 else 0
+                    eta_str = f"{eta_seconds}s" if speed > 0 else "∞"
                 else:
                     speed_str = "0 B/s"
                     eta_str = "∞"
@@ -67,8 +64,14 @@ class DownloadProgress:
                 filled_width = int(progress_width * percentage / 100)
                 bar = "█" * filled_width + "░" * (progress_width - filled_width)
                 
+                # Include filename if available
+                name_part = f"{self.file_name} " if self.file_name else ""
+                
                 # Use carriage return to overwrite the same line
-                progress_line = f"\r      📥 {percentage:5.1f}% [{bar}] {downloaded_str}/{total_str} at {speed_str} - ETA: {eta_str}"
+                progress_line = (
+                    f"\r      📥 {name_part}{percentage:5.1f}% [{bar}] "
+                    f"{downloaded_str}/{total_str} at {speed_str} - ETA: {eta_str}"
+                )
                 print(progress_line, end="", flush=True)
                 
                 # Mark as completed if we've reached 100%
@@ -78,22 +81,13 @@ class DownloadProgress:
     def finish(self):
         """Show final completion status."""
         if not self.completed and self.total_size > 0:
-            # Show 100% completion
             downloaded_str = format_file_size(self.total_size)
-            total_str = format_file_size(self.total_size)
-            
-            # Calculate final speed
+            total_str = downloaded_str
             elapsed = time.time() - self.start_time
-            if elapsed > 0:
-                speed = self.total_size / elapsed
-                speed_str = format_file_size(speed) + "/s"
-            else:
-                speed_str = "∞ B/s"
-            
-            progress_width = 20
-            bar = "█" * progress_width
-            
-            progress_line = f"\r      📥 100.0% [{bar}] {downloaded_str}/{total_str} at {speed_str} - DONE!"
+            speed_str = format_file_size(self.total_size / elapsed) + "/s" if elapsed > 0 else "∞ B/s"
+            bar = "█" * 20
+            name_part = f"{self.file_name} " if self.file_name else ""
+            progress_line = f"\r      📥 {name_part}100.0% [{bar}] {downloaded_str}/{total_str} at {speed_str} - DONE!"
             print(progress_line, flush=True)
             self.completed = True
 
@@ -150,11 +144,20 @@ async def download_media(client, message, message_folder, filename_base):
         
         # Create progress tracker
         progress_callback = None
+        file_display_name = None
         try:
-            if hasattr(message.media, 'document') and message.media.document and message.media.document.size:
-                progress_callback = DownloadProgress(message.media.document.size)
-        except:
-            pass
+            if hasattr(message.media, 'document') and message.media.document:
+                doc = message.media.document
+                # Try to extract original filename attribute
+                if hasattr(doc, 'attributes') and doc.attributes:
+                    for attr in doc.attributes:
+                        if hasattr(attr, 'file_name') and attr.file_name:
+                            file_display_name = attr.file_name
+                            break
+                if doc.size:
+                    progress_callback = DownloadProgress(doc.size, file_name=file_display_name)
+        except Exception as e:
+            print(f"    - Note: Couldn't extract original filename: {e}")
         
         # Download the media to the message folder with progress tracking
         if progress_callback:

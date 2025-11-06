@@ -105,7 +105,24 @@ def get_export_stats(db_path):
     ''')
     stats = cursor.fetchone()
     conn.close()
-    return stats
+    
+    # Return as dictionary
+    if stats:
+        return {
+            'total_messages': stats[0],
+            'with_media': stats[1],
+            'oldest': stats[2],
+            'newest': stats[3],
+            'total_folders': stats[0]  # Same as total messages for now
+        }
+    else:
+        return {
+            'total_messages': 0,
+            'with_media': 0,
+            'oldest': None,
+            'newest': None,
+            'total_folders': 0
+        }
 
 
 def is_folder_backed_up(db_path, folder_name):
@@ -172,7 +189,22 @@ def get_backup_stats(db_path):
     ''')
     stats = cursor.fetchone()
     conn.close()
-    return stats
+    
+    # Return as dictionary
+    if stats:
+        return {
+            'total_backups': stats[0],
+            'completed_backups': stats[1],
+            'failed_backups': stats[2],
+            'total_bytes_uploaded': stats[3] if stats[3] else 0
+        }
+    else:
+        return {
+            'total_backups': 0,
+            'completed_backups': 0,
+            'failed_backups': 0,
+            'total_bytes_uploaded': 0
+        }
 
 
 def get_folders_to_backup(db_path, export_dir):

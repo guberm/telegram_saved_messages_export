@@ -2,10 +2,14 @@
 
 Export your Telegram saved messages to organized HTML and Markdown files with media downloads.
 
+**🎨 NEW! Modern GUI Available!** Double-click `run_gui.bat` for a beautiful interface!
+
 **Windows users:** See [WINDOWS_QUICK_START.md](WINDOWS_QUICK_START.md) for Windows-specific instructions.
 
 ## ✨ Features
 
+- **🎨 Modern GUI** - Beautiful interface with dark theme, stat cards, and toast notifications
+- **🖥️ Simple GUI** - Lightweight alternative interface
 - **📁 Individual Message Folders** - Each message gets its own folder
 - **🎨 Telegram-like HTML Styling** - HTML files look like actual Telegram messages  
 - **🖼️ Media Downloads** - Automatically downloads and saves images, videos, etc.
@@ -16,6 +20,38 @@ Export your Telegram saved messages to organized HTML and Markdown files with me
 - **☁️ Google Drive Backup** - Per-folder backup with automatic cleanup
 - **🔁 Resume Capability** - Interrupted backups resume where they left off
 - **🧹 Auto Cleanup** - Deletes folders after successful upload (optional)
+
+## 🚀 Quick Start
+
+### Using Modern GUI (Recommended)
+
+**Windows:**
+1. Double-click `run_gui.bat`
+2. Configure options in the beautiful interface
+3. Click "📥 Export Messages" or "📥☁️ Export + Backup"
+
+**Features:**
+- 🎨 Dark theme with visual stat cards
+- 🔔 Toast notifications
+- 📊 Real-time progress
+- 🎯 Status indicator
+- 🌈 Color-coded logs
+
+**Or run directly:**
+```bash
+py gui_modern.py
+```
+
+### Using Simple GUI
+
+For a lightweight alternative:
+```bash
+py gui.py
+```
+
+### Using CLI
+
+See [Usage](#-usage) section below for command-line options.
 
 ## 📋 Setup
 
@@ -72,11 +108,38 @@ Quick setup:
 
 On the first run, you'll be asked to enter the verification code sent to your Telegram account.
 
-## Usage
+## 🎯 Usage
+
+### Using GUI (Recommended)
+
+**Start GUI:**
+```bash
+py gui.py
+```
+
+Or on Windows, double-click: `run_gui.bat`
+
+**GUI Features:**
+- 📊 Real-time statistics display
+- 📅 Date filter for selective exports
+- ☑️ Checkboxes for all options
+- 📥 One-click export operations
+- 📋 Live progress log with color coding
+- 🖥️ Open CLI button for advanced commands
+
+**GUI Buttons:**
+- **📥 Export Messages** - Export without backup
+- **📥☁️ Export + Backup** - Export and backup to Google Drive
+- **☁️ Backup Only** - Backup existing exports (no new export)
+- **🔄 Refresh Stats** - Update statistics display
+- **📂 Open Export Folder** - Open in File Explorer
+- **🖥️ Open CLI** - Launch command prompt for CLI commands
+
+### Using CLI (Advanced)
 
 **Windows users:** Replace `python` with `py` in all commands below if Python is not in your PATH.
 
-### Export All Saved Messages
+#### Export All Saved Messages
 
 ```bash
 python main.py
@@ -84,7 +147,7 @@ python main.py
 py main.py
 ```
 
-### Export Messages from a Specific Date
+#### Export Messages from a Specific Date
 
 ```bash
 python main.py --from-date 2024-01-01
@@ -94,7 +157,7 @@ py main.py --from-date 2024-01-01
 
 This will export all messages from January 1, 2024 onwards.
 
-### Force Re-export
+#### Force Re-export
 
 ```bash
 python main.py --force

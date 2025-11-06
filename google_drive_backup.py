@@ -315,11 +315,12 @@ class GoogleDriveBackup:
             # Still failed, raise for caller to handle
             raise Exception(f"Cannot delete folder after retries: {e}")
     
-    def create_folder_archive(self, folder_path):
-        """Create a zip archive of a single message folder.
+    def create_folder_archive(self, folder_path, progress_callback=None):
+        """Create a zip archive of a single message folder with progress tracking.
         
         Args:
             folder_path: Path object pointing to the message folder
+            progress_callback: Optional function(current, total, filename) for progress updates
             
         Returns:
             Path to the created zip file or None on error
@@ -334,11 +335,45 @@ class GoogleDriveBackup:
             zip_filename = f"{folder_path.name}.zip"
             zip_path = folder_path.parent / zip_filename
             
+            # Collect all files first to show progress
+            all_files = [item for item in folder_path.rglob('*') if item.is_file()]
+            total_files = len(all_files)
+            
+            # Pre-calculate total bytes for speed/ETA
+            total_bytes = 0
+            file_sizes = {}
+            for f in all_files:
+                try:
+                    size = f.stat().st_size
+                except Exception:
+                    size = 0
+                file_sizes[f] = size
+                total_bytes += size
+
+            processed_bytes = 0
+            start_time = datetime.now().timestamp()
+
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for item in folder_path.rglob('*'):
-                    if item.is_file():
-                        arcname = item.relative_to(folder_path.parent)
-                        zipf.write(item, arcname)
+                for idx, item in enumerate(all_files, 1):
+                    arcname = item.relative_to(folder_path.parent)
+                    zipf.write(item, arcname)
+                    processed_bytes += file_sizes.get(item, 0)
+
+                    # Report progress with speed/ETA
+                    if progress_callback:
+                        elapsed = datetime.now().timestamp() - start_time
+                        speed = processed_bytes / elapsed if elapsed > 0 else 0
+                        remaining_bytes = max(total_bytes - processed_bytes, 0)
+                        eta_seconds = int(remaining_bytes / speed) if speed > 0 else 0
+                        progress_callback(
+                            idx,
+                            total_files,
+                            item.name,
+                            processed_bytes,
+                            total_bytes,
+                            speed,
+                            eta_seconds
+                        )
             
             file_size_mb = zip_path.stat().st_size / (1024 * 1024)
             return zip_path
@@ -347,7 +382,7 @@ class GoogleDriveBackup:
             print(f"❌ Error creating folder archive: {e}")
             return None
     
-    def backup_individual_folders(self, export_dir, db_path, cleanup_after_upload=True):
+    def backup_individual_folders(self, export_dir, db_path, cleanup_after_upload=True, cancel_event=None):
         """Backup each message folder individually with database tracking.
         
         Args:
@@ -379,13 +414,57 @@ class GoogleDriveBackup:
         stats = {'success': 0, 'failed': 0, 'skipped': 0}
         
         for idx, folder in enumerate(folders_to_backup, 1):
+            if cancel_event and cancel_event.is_set():
+                print("\n⚠️ Cancellation requested. Stopping folder backups.")
+                break
             folder_name = folder.name
             print(f"\n[{idx}/{len(folders_to_backup)}] Processing: {folder_name}")
             
             try:
-                # Create archive
+                # Create archive with progress tracking
                 print(f"  - Creating archive...")
-                zip_path = self.create_folder_archive(folder)
+                
+                def archive_progress(current, total, filename, processed_bytes=None, total_bytes=None, speed=None, eta_seconds=None):
+                    percent = (current / total * 100) if total > 0 else 0
+                    # Format speed & ETA if available
+                    speed_str = "";
+                    eta_str = ""
+                    if speed is not None and total_bytes:
+                        # Human readable speed
+                        def _fmt_bytes(b):
+                            units = ["B","KB","MB","GB","TB"]
+                            import math
+                            if b <= 0:
+                                return "0 B"
+                            i = int(math.floor(math.log(b,1024)))
+                            p = math.pow(1024,i)
+                            s = b/p
+                            return f"{s:.1f} {units[i]}"
+                        speed_str = f" at {_fmt_bytes(speed)}/s" if speed > 0 else ""
+                        if eta_seconds is not None:
+                            # Format ETA as H:MM:SS if large
+                            if eta_seconds > 3600:
+                                import datetime as _dt
+                                eta_str = str(_dt.timedelta(seconds=eta_seconds))
+                            elif eta_seconds >= 60:
+                                m = eta_seconds // 60
+                                s = eta_seconds % 60
+                                eta_str = f"{m}m{s}s"
+                            else:
+                                eta_str = f"{eta_seconds}s"
+                    eta_part = f" - ETA: {eta_str}" if eta_str else ""
+                    print(f"\r  📦 Archiving: {percent:.1f}% ({current}/{total}) - {filename[:40]}{speed_str}{eta_part}", end="", flush=True)
+                
+                # Early cancel before heavy archiving
+                if cancel_event and cancel_event.is_set():
+                    print("  ⚠️ Cancelled before archiving.")
+                    break
+                zip_path = self.create_folder_archive(folder, progress_callback=archive_progress)
+                
+                # Clear progress line
+                if zip_path:
+                    print()  # New line after progress
+                
                 if not zip_path:
                     mark_backup_failed(db_path, folder_name, "Failed to create archive")
                     stats['failed'] += 1
@@ -400,6 +479,9 @@ class GoogleDriveBackup:
                 
                 # Upload to Google Drive
                 print(f"  - Uploading to Google Drive...")
+                if cancel_event and cancel_event.is_set():
+                    print("  ⚠️ Cancelled before upload.")
+                    break
                 file_id = self.upload_file(zip_path, delete_after_upload=False)
                 
                 if file_id:
@@ -435,7 +517,7 @@ class GoogleDriveBackup:
                 stats['failed'] += 1
         
         # Upload the database file after all folders are processed
-        if stats['success'] > 0:
+        if stats['success'] > 0 and not (cancel_event and cancel_event.is_set()):
             print(f"\n" + "="*50)
             print("📊 Backing up database file...")
             db_file_id = self.upload_database_file(db_path)
@@ -444,6 +526,8 @@ class GoogleDriveBackup:
             else:
                 stats['database_backed_up'] = False
                 print("⚠️  Warning: Database backup failed, but folder backups completed")
+        elif cancel_event and cancel_event.is_set():
+            print("⚠️ Database backup skipped due to cancellation.")
         
         return stats
     
