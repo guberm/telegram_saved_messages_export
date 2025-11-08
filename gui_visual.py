@@ -252,6 +252,18 @@ class VisualExporterGUI:
             bootstyle="warning-outline",
             width=18
         ).pack(side=LEFT, padx=(5,0))
+
+        # Third row for search and other features
+        btn_row3 = ttk.Frame(button_container)
+        btn_row3.pack(fill=X, pady=(10, 0))
+
+        ttk.Button(
+            btn_row3,
+            text="🔍 Search Messages",
+            command=self.open_search_window,
+            bootstyle="success",
+            width=38
+        ).pack(side=LEFT, ipady=8)
         
         # ===== VISUAL PROGRESS AREA (scrollable) =====
         progress_frame = ttk.Labelframe(
@@ -1310,6 +1322,77 @@ class VisualExporterGUI:
                     if retry_match:
                         self.metrics['current_retries'] = int(retry_match.group(1))
                         self._update_metrics_labels()
+                
+                # Pattern: Google Drive backup progress [X/Y] Processing: folder_name
+                elif norm_msg.startswith('[') and '] Processing:' in norm_msg:
+                    backup_progress_match = re.match(r'\[(\d+)/(\d+)\] Processing: (.+)', norm_msg)
+                    if backup_progress_match:
+                        current = int(backup_progress_match.group(1))
+                        total = int(backup_progress_match.group(2))
+                        folder_name = backup_progress_match.group(3).strip()
+                        
+                        self.message_queue.put(("progress", {
+                            'current': current,
+                            'total': total,
+                            'item': f'Folder {current}/{total}'
+                        }))
+                        self.message_queue.put(("operation", {
+                            'text': f'☁️ Backing up folder {current}/{total}'
+                        }))
+                        self.message_queue.put(("details", {
+                            'text': f'📁 {folder_name}'
+                        }))
+                        self.root.update_idletasks()
+                
+                # Pattern: Found X folders to backup
+                elif 'Found' in norm_msg and 'folders to backup' in norm_msg:
+                    folders_match = re.search(r'Found (\d+) folders to backup', norm_msg)
+                    if folders_match:
+                        total = int(folders_match.group(1))
+                        self.message_queue.put(("progress", {
+                            'current': 0,
+                            'total': total,
+                            'item': 'Starting backup...'
+                        }))
+                        self.message_queue.put(("operation", {
+                            'text': f'☁️ Backing up {total} folders to Google Drive'
+                        }))
+                        self.root.update_idletasks()
+                
+                # Pattern: Uploading to Google Drive
+                elif 'Uploading to Google Drive' in norm_msg or 'Uploading to Google Drive...' in norm_msg:
+                    upload_match = re.search(r'Uploading to Google Drive: (.+?) \(([\d.]+) MB\)', norm_msg)
+                    if upload_match:
+                        filename = upload_match.group(1).strip()
+                        size_mb = upload_match.group(2)
+                        self.message_queue.put(("secondary_progress", {
+                            'percent': 0,
+                            'text': f'☁️ Uploading: {filename[:40]} ({size_mb} MB)'
+                        }))
+                    else:
+                        # Fallback without size
+                        self.message_queue.put(("secondary_progress", {
+                            'percent': 0,
+                            'text': '☁️ Uploading to Google Drive...'
+                        }))
+                    self.root.update_idletasks()
+                
+                # Pattern: Upload success
+                elif 'Uploaded successfully' in norm_msg or '✓ Uploaded to Google Drive' in norm_msg:
+                    self.message_queue.put(("secondary_progress", {
+                        'percent': 100,
+                        'text': '✓ Upload complete'
+                    }))
+                    self.root.update_idletasks()
+                
+                # Pattern: Creating archive
+                elif 'Creating archive' in norm_msg:
+                    self.message_queue.put(("secondary_progress", {
+                        'percent': 0,
+                        'text': '📦 Creating archive...'
+                    }))
+                    self.root.update_idletasks()
+                
                 elif 'Failed to export message' in norm_msg or 'Error exporting message' in norm_msg:
                     self.metrics['last_error'] = norm_msg
                     self._update_metrics_labels()
@@ -1752,6 +1835,269 @@ class VisualExporterGUI:
         ).pack(side=LEFT)
         
         self.show_toast("📋 Logs Window", "Opened detailed logs window")
+
+
+    def open_search_window(self):
+        """Open search window for finding exported messages"""
+        search_window = tk.Toplevel(self.root)
+        search_window.title("🔍 Search Messages")
+        search_window.geometry("1000x700")
+        
+        # Main container
+        main_frame = ttk.Frame(search_window, padding=10)
+        main_frame.pack(fill=BOTH, expand=YES)
+        
+        # Search controls frame
+        search_frame = ttk.Labelframe(main_frame, text="🔍  Search Filters", padding=10)
+        search_frame.pack(fill=X, pady=(0, 10))
+        
+        # Text search
+        ttk.Label(search_frame, text="Text in message:").grid(row=0, column=0, sticky=W, pady=5)
+        text_entry = ttk.Entry(search_frame, width=50)
+        text_entry.grid(row=0, column=1, sticky=EW, padx=5, pady=5)
+        
+        # Filename search
+        ttk.Label(search_frame, text="Media filename:").grid(row=1, column=0, sticky=W, pady=5)
+        filename_entry = ttk.Entry(search_frame, width=50)
+        filename_entry.grid(row=1, column=1, sticky=EW, padx=5, pady=5)
+        
+        # Date filters
+        ttk.Label(search_frame, text="Date from (YYYY-MM-DD):").grid(row=2, column=0, sticky=W, pady=5)
+        date_from_entry = ttk.Entry(search_frame, width=20)
+        date_from_entry.grid(row=2, column=1, sticky=W, padx=5, pady=5)
+        
+        ttk.Label(search_frame, text="Date to (YYYY-MM-DD):").grid(row=3, column=0, sticky=W, pady=5)
+        date_to_entry = ttk.Entry(search_frame, width=20)
+        date_to_entry.grid(row=3, column=1, sticky=W, padx=5, pady=5)
+        
+        # Add context menu for copy/paste to all entry fields
+        def create_context_menu(entry_widget):
+            """Create right-click context menu for entry field and bind keyboard shortcuts"""
+            menu = tk.Menu(entry_widget, tearoff=0)
+            menu.add_command(label="Cut", command=lambda: entry_widget.event_generate("<<Cut>>"))
+            menu.add_command(label="Copy", command=lambda: entry_widget.event_generate("<<Copy>>"))
+            menu.add_command(label="Paste", command=lambda: entry_widget.event_generate("<<Paste>>"))
+            menu.add_separator()
+            menu.add_command(label="Select All", command=lambda: entry_widget.select_range(0, tk.END))
+            
+            def show_menu(event):
+                try:
+                    menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    menu.grab_release()
+            
+            # Bind right-click menu
+            entry_widget.bind("<Button-3>", show_menu)
+            
+            # Bind keyboard shortcuts
+            entry_widget.bind("<Control-c>", lambda e: entry_widget.event_generate("<<Copy>>"))
+            entry_widget.bind("<Control-x>", lambda e: entry_widget.event_generate("<<Cut>>"))
+            entry_widget.bind("<Control-v>", lambda e: entry_widget.event_generate("<<Paste>>"))
+            entry_widget.bind("<Control-a>", lambda e: entry_widget.select_range(0, tk.END))
+        
+        # Apply context menu to all entry fields
+        create_context_menu(text_entry)
+        create_context_menu(filename_entry)
+        create_context_menu(date_from_entry)
+        create_context_menu(date_to_entry)
+        
+        search_frame.columnconfigure(1, weight=1)
+        
+        # Results frame
+        results_frame = ttk.Labelframe(main_frame, text="📊  Search Results", padding=10)
+        results_frame.pack(fill=BOTH, expand=YES)
+        
+        # Results text with scrollbar
+        results_scroll = ttk.Scrollbar(results_frame, orient=VERTICAL)
+        results_text = tk.Text(
+            results_frame,
+            wrap=WORD,
+            font=("Consolas", 10),
+            yscrollcommand=results_scroll.set,
+            state=DISABLED
+        )
+        results_scroll.config(command=results_text.yview)
+        results_scroll.pack(side=RIGHT, fill=Y)
+        results_text.pack(fill=BOTH, expand=YES)
+        
+        # Add context menu for results text (copy only, since it's read-only)
+        results_menu = tk.Menu(results_text, tearoff=0)
+        results_menu.add_command(label="Copy", command=lambda: results_text.event_generate("<<Copy>>"))
+        results_menu.add_command(label="Select All", command=lambda: results_text.tag_add(tk.SEL, "1.0", tk.END))
+        
+        def show_results_menu(event):
+            try:
+                results_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                results_menu.grab_release()
+        
+        results_text.bind("<Button-3>", show_results_menu)
+        
+        # Bind keyboard shortcuts for results text
+        results_text.bind("<Control-c>", lambda e: results_text.event_generate("<<Copy>>"))
+        results_text.bind("<Control-a>", lambda e: results_text.tag_add(tk.SEL, "1.0", tk.END))
+        
+        # Status label
+        status_label = ttk.Label(results_frame, text="", font=("Segoe UI", 9, "italic"))
+        status_label.pack(anchor=W, pady=(5,0))
+        
+        def perform_search():
+            """Execute search query"""
+            from database import search_messages
+            
+            # Get search parameters
+            text_query = text_entry.get().strip() or None
+            filename_query = filename_entry.get().strip() or None
+            date_from = date_from_entry.get().strip() or None
+            date_to = date_to_entry.get().strip() or None
+            
+            if not any([text_query, filename_query, date_from, date_to]):
+                status_label.config(text="⚠️  Please enter at least one search parameter")
+                return
+            
+            try:
+                # Get database path
+                from config import OUTPUT_DIR
+                from pathlib import Path
+                import sqlite3
+                db_path = Path(OUTPUT_DIR) / 'export_history.db'
+                
+                if not db_path.exists():
+                    status_label.config(text="❌  Database not found. Export some messages first.")
+                    return
+                
+                # Check total records in database
+                conn = sqlite3.connect(db_path)
+                cursor = conn.execute('SELECT COUNT(*) FROM exported_messages')
+                total_records = cursor.fetchone()[0]
+                
+                # Get sample of filenames for debugging
+                cursor = conn.execute('SELECT media_filename FROM exported_messages WHERE media_filename IS NOT NULL LIMIT 5')
+                sample_files = [row[0] for row in cursor.fetchall()]
+                conn.close()
+                
+                # Perform search
+                results = search_messages(db_path, text_query, filename_query, date_from, date_to)
+                
+                # Display results
+                results_text.config(state=NORMAL)
+                results_text.delete(1.0, tk.END)
+                
+                if not results:
+                    results_text.insert(tk.END, "No results found.\n\n")
+                    results_text.insert(tk.END, f"📊 Database info:\n")
+                    results_text.insert(tk.END, f"   Total records: {total_records:,}\n\n")
+                    
+                    if sample_files:
+                        results_text.insert(tk.END, "📁 Sample filenames in database:\n")
+                        for fname in sample_files:
+                            results_text.insert(tk.END, f"   • {fname}\n")
+                        results_text.insert(tk.END, "\n")
+                    
+                    results_text.insert(tk.END, "Try:\n")
+                    results_text.insert(tk.END, "• Different keywords\n")
+                    results_text.insert(tk.END, "• Broader date range\n")
+                    results_text.insert(tk.END, "• Partial filename match\n")
+                    status_label.config(text=f"❌  0 results found")
+                else:
+                    for idx, (msg_id, msg_date, msg_text, media_filename, file_path) in enumerate(results, 1):
+                        results_text.insert(tk.END, f"{'='*80}\n", "separator")
+                        results_text.insert(tk.END, f"Result #{idx}\n", "header")
+                        results_text.insert(tk.END, f"{'='*80}\n\n", "separator")
+                        
+                        results_text.insert(tk.END, f"📅 Date: ", "label")
+                        results_text.insert(tk.END, f"{msg_date}\n", "value")
+                        
+                        results_text.insert(tk.END, f"🆔 Message ID: ", "label")
+                        results_text.insert(tk.END, f"{msg_id}\n\n", "value")
+                        
+                        if media_filename:
+                            results_text.insert(tk.END, f"📎 Media: ", "label")
+                            results_text.insert(tk.END, f"{media_filename}\n", "media")
+                        
+                        if file_path:
+                            results_text.insert(tk.END, f"📁 Folder: ", "label")
+                            results_text.insert(tk.END, f"{file_path}\n", "path")
+                            # Add button to open folder
+                            def open_folder(path=file_path):
+                                import subprocess
+                                if Path(path).exists():
+                                    subprocess.Popen(f'explorer "{path}"')
+                            
+                            open_btn = ttk.Button(
+                                results_text,
+                                text="📂 Open Folder",
+                                command=open_folder,
+                                bootstyle="info-outline",
+                                width=15
+                            )
+                            results_text.window_create(tk.END, window=open_btn)
+                            results_text.insert(tk.END, "\n")
+                        
+                        results_text.insert(tk.END, f"\n💬 Text:\n", "label")
+                        text_preview = (msg_text or "")[:500]
+                        if len(msg_text or "") > 500:
+                            text_preview += "..."
+                        results_text.insert(tk.END, f"{text_preview}\n\n", "text")
+                    
+                    status_label.config(text=f"✅  Found {len(results)} result(s)")
+                
+                # Configure text tags for styling
+                results_text.tag_config("separator", foreground="#666666")
+                results_text.tag_config("header", font=("Consolas", 11, "bold"), foreground="#00d4ff")
+                results_text.tag_config("label", font=("Consolas", 10, "bold"), foreground="#ffaa00")
+                results_text.tag_config("value", foreground="#ffffff")
+                results_text.tag_config("media", foreground="#00ff88")
+                results_text.tag_config("path", foreground="#8888ff")
+                results_text.tag_config("text", foreground="#cccccc")
+                
+                results_text.config(state=DISABLED)
+                
+            except Exception as e:
+                status_label.config(text=f"❌  Error: {str(e)}")
+                import traceback
+                traceback.print_exc()
+        
+        def clear_results():
+            """Clear search results"""
+            results_text.config(state=NORMAL)
+            results_text.delete(1.0, tk.END)
+            results_text.config(state=DISABLED)
+            status_label.config(text="")
+        
+        # Button frame
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=X, pady=(10,0))
+        
+        ttk.Button(
+            btn_frame,
+            text="🔍 Search",
+            command=perform_search,
+            bootstyle="success",
+            width=15
+        ).pack(side=LEFT, padx=5)
+        
+        ttk.Button(
+            btn_frame,
+            text="🗑️ Clear",
+            command=clear_results,
+            bootstyle="warning-outline",
+            width=15
+        ).pack(side=LEFT, padx=5)
+        
+        ttk.Button(
+            btn_frame,
+            text="❌ Close",
+            command=search_window.destroy,
+            bootstyle="secondary-outline",
+            width=15
+        ).pack(side=LEFT)
+        
+        # Bind Enter key to search
+        text_entry.bind('<Return>', lambda e: perform_search())
+        filename_entry.bind('<Return>', lambda e: perform_search())
+        
+        self.show_toast("🔍 Search Window", "Opened message search window")
 
 
 def main():
