@@ -4,19 +4,6 @@ Database operations for tracking exported messages
 
 import sqlite3
 from pathlib import Path
-def get_db_connection(db_path, timeout=30):
-    """Create a database connection with proper settings for concurrent access."""
-    conn = sqlite3.connect(
-        db_path,
-        timeout=timeout,
-        check_same_thread=False,
-        isolation_level='DEFERRED'
-    )
-    # Enable WAL mode for better concurrent access
-    conn.execute('PRAGMA journal_mode=WAL')
-    conn.execute('PRAGMA busy_timeout=30000')
-    return conn
-
 
 def init_database(output_dir=None):
     """Initialize SQLite database to track exported messages."""
@@ -34,7 +21,7 @@ def init_database(output_dir=None):
     output_path.mkdir(exist_ok=True)
     
     db_path = output_path / 'export_history.db'
-    conn = get_db_connection(str(db_path))
+    conn = sqlite3.connect(db_path)
     
     # Create table if it doesn't exist
     conn.execute('''
@@ -73,7 +60,7 @@ def init_database(output_dir=None):
 
 def is_message_exported(db_path, message_id):
     """Check if a message has already been exported."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.execute('SELECT 1 FROM exported_messages WHERE message_id = ?', (message_id,))
     exists = cursor.fetchone() is not None
     conn.close()
@@ -82,7 +69,7 @@ def is_message_exported(db_path, message_id):
 
 def mark_message_exported(db_path, message, media_filename=None, file_path=None):
     """Mark a message as exported in the database."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     
     # Create a simple hash for change detection
     content_hash = str(hash(str(message.text or '') + str(message.date)))
@@ -146,7 +133,7 @@ def search_messages(db_path, text_query=None, filename_query=None, date_from=Non
         text = re.sub(r'[^\w\s]', '', text, flags=re.UNICODE)
         return text.strip()
     
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     
     # Build query
     query = 'SELECT message_id, message_date, message_text, media_filename, file_path FROM exported_messages WHERE 1=1'
@@ -196,7 +183,7 @@ def search_messages(db_path, text_query=None, filename_query=None, date_from=Non
 
 def get_export_stats(db_path):
     """Get statistics about exported messages."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.execute('''
         SELECT 
             COUNT(*) as total,
@@ -229,7 +216,7 @@ def get_export_stats(db_path):
 
 def is_folder_backed_up(db_path, folder_name):
     """Check if a folder has already been backed up to Google Drive."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.execute(
         'SELECT status FROM backup_history WHERE message_folder = ? AND status = ?', 
         (folder_name, 'completed')
@@ -241,7 +228,7 @@ def is_folder_backed_up(db_path, folder_name):
 
 def mark_backup_started(db_path, folder_name, folder_path, archive_filename, archive_size):
     """Mark a folder backup as started."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     conn.execute('''
         INSERT OR REPLACE INTO backup_history 
         (message_folder, folder_path, archive_filename, archive_size_bytes, status)
@@ -253,7 +240,7 @@ def mark_backup_started(db_path, folder_name, folder_path, archive_filename, arc
 
 def mark_backup_completed(db_path, folder_name, google_drive_file_id):
     """Mark a folder backup as completed with Google Drive file ID."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     conn.execute('''
         UPDATE backup_history 
         SET status = 'completed', 
@@ -267,7 +254,7 @@ def mark_backup_completed(db_path, folder_name, google_drive_file_id):
 
 def mark_backup_failed(db_path, folder_name, error_message):
     """Mark a folder backup as failed with error message."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     conn.execute('''
         UPDATE backup_history 
         SET status = 'failed',
@@ -280,7 +267,7 @@ def mark_backup_failed(db_path, folder_name, error_message):
 
 def get_backup_stats(db_path):
     """Get statistics about backups."""
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.execute('''
         SELECT 
             COUNT(*) as total,
@@ -316,7 +303,7 @@ def get_folders_to_backup(db_path, export_dir):
     export_path = Path(export_dir)
     all_folders = [f for f in export_path.iterdir() if f.is_dir()]
     
-    conn = get_db_connection(db_path)
+    conn = sqlite3.connect(db_path)
     cursor = conn.execute(
         'SELECT message_folder FROM backup_history WHERE status = ?',
         ('completed',)

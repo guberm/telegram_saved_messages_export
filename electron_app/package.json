@@ -1,0 +1,91 @@
+{
+  "name": "telegram-exporter-desktop",
+  "version": "1.0.0",
+  "description": "Telegram Messages Exporter - Desktop Application",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build-win": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.telegram.exporter",
+    "productName": "Telegram Exporter",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "publish": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Telegram Exporter"
+    },
+    "files": [
+      "**/*",
+      "!**/*.md",
+      "!dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../web_server.py",
+        "to": "backend/web_server.py"
+      },
+      {
+        "from": "../database.py",
+        "to": "backend/database.py"
+      },
+      {
+        "from": "../exporter.py",
+        "to": "backend/exporter.py"
+      },
+      {
+        "from": "../config.py",
+        "to": "backend/config.py"
+      },
+      {
+        "from": "../media_handler.py",
+        "to": "backend/media_handler.py"
+      },
+      {
+        "from": "../google_drive_backup.py",
+        "to": "backend/google_drive_backup.py"
+      },
+      {
+        "from": "../formatters.py",
+        "to": "backend/formatters.py"
+      },
+      {
+        "from": "../utils.py",
+        "to": "backend/utils.py"
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "backend/requirements.txt"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-squirrel-startup": "^1.0.0"
+  },
+  "devDependencies": {
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4"
+  },
+  "author": "Telegram Exporter",
+  "license": "MIT"
+}
