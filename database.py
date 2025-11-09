@@ -114,7 +114,7 @@ def search_messages(db_path, text_query=None, filename_query=None, date_from=Non
         """Normalize text for flexible search - remove extra spaces, underscores, special chars
         
         Examples:
-            "ха__кер" -> "хакер"
+            "ha__cker" -> "hacker"
             "test___file___name" -> "testfilename"
             "some-text_with__symbols" -> "some text with symbols"
         """
@@ -123,7 +123,7 @@ def search_messages(db_path, text_query=None, filename_query=None, date_from=Non
         # Convert to lowercase
         text = text.lower()
         # First, remove ALL underscores completely (don't replace with spaces)
-        # This allows "ха__кер" to become "хакер"
+        # This allows "ha__cker" to become "hacker"
         text = text.replace('_', '')
         # Replace hyphens with spaces for word separation
         text = text.replace('-', ' ')

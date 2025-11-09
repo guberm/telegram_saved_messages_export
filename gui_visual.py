@@ -1,7 +1,28 @@
+
 """
 Ultra Modern GUI for Telegram Saved Messages Exporter
 No CLI logs - Pure visual interface
 """
+
+# Force working directory to script directory for all launch methods
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
+# Write debug info to file for startup diagnostics
+with open("debug_startup.txt", "w", encoding="utf-8") as f:
+    f.write(f"CWD: {os.getcwd()}\n")
+    from config import OUTPUT_DIR
+    db_abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, 'export_history.db'))
+    f.write(f"DB PATH: {db_abs_path}\n")
+    f.write(f"DB EXISTS: {os.path.exists(db_abs_path)}\n")
+
+
+# Debug: Print working directory and database path/existence
+from config import OUTPUT_DIR
+db_abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, 'export_history.db'))
+print(f"[DEBUG] CWD: {os.getcwd()}")
+print(f"[DEBUG] DB PATH: {db_abs_path}")
+print(f"[DEBUG] DB EXISTS: {os.path.exists(db_abs_path)}")
 
 import tkinter as tk
 import ttkbootstrap as ttk
@@ -18,6 +39,19 @@ import queue
 from config import *
 from database import init_database, get_export_stats, get_backup_stats
 from exporter import export_saved_messages
+
+# Write debug info to file for startup diagnostics (after all imports, safe)
+try:
+    import os
+    from config import OUTPUT_DIR
+    db_abs_path = os.path.abspath(os.path.join(OUTPUT_DIR, 'export_history.db'))
+    with open("debug_startup.txt", "w", encoding="utf-8") as f:
+        f.write(f"CWD: {os.getcwd()}\n")
+        f.write(f"DB PATH: {db_abs_path}\n")
+        f.write(f"DB EXISTS: {os.path.exists(db_abs_path)}\n")
+except Exception as e:
+    with open("debug_startup.txt", "w", encoding="utf-8") as f:
+        f.write(f"ERROR: {e}\n")
 from google_drive_backup import GoogleDriveBackup
 from telethon import TelegramClient
 
@@ -27,33 +61,43 @@ class VisualExporterGUI:
         self.root = root
         self.root.title("Telegram Saved Messages Exporter")
         self.root.geometry("900x700")
-        
+
+        # Initialize database first
+        print("🔧 Initializing database...")
+        try:
+            init_database(OUTPUT_DIR)
+            print("✅ Database initialized")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not initialize database: {e}")
+
         # Variables
         self.is_running = False
         self.current_thread = None
         self.message_queue = queue.Queue()
         # Cancellation event for cooperative stopping
         self.cancel_event = threading.Event()
-        
+
         # Stats tracking
         self.current_progress = 0
         self.total_items = 0
         self.current_item_name = ""
-        
+
         # Setup UI
         self.setup_ui()
-        
+
         # Load initial stats
         self.load_stats()
+        # Force refresh after window is loaded (fix for VBS/silent launch)
+        self.root.after(500, self.load_stats)
         # Init tooltips
         self._init_tooltips()
         # Start activity window auto-refresh loop
         self.last_activity_render_count = 0
         self.schedule_activity_refresh()
-        
+
         # Start message processor
         self.process_messages()
-        
+
         # Show welcome
         self.show_toast("Welcome! 👋", "Ready to export your Telegram messages")
     
@@ -788,27 +832,44 @@ class VisualExporterGUI:
         """Load statistics"""
         try:
             db_path = Path(OUTPUT_DIR) / "export_history.db"
+            print(f"📊 Loading stats from: {db_path}")
+            print(f"📁 Output directory: {OUTPUT_DIR}")
+            print(f"✓ Database exists: {db_path.exists()}")
             
+            # Initialize database if it doesn't exist
             if not db_path.exists():
+                print(f"📊 Database not found at {db_path}, initializing...")
+                init_database(OUTPUT_DIR)
+            
+            # Check again after initialization
+            if not db_path.exists():
+                print("⚠️ Warning: Database still not found after initialization")
                 self.messages_label.config(text="0")
                 self.folders_label.config(text="0")
                 self.backup_label.config(text="0%")
                 self.size_label.config(text="0 GB")
                 return
             
+            print(f"📊 Getting export stats from database...")
             export_stats = get_export_stats(str(db_path))
+            print(f"✓ Stats retrieved: {export_stats}")
+            
             total_messages = export_stats['total_messages']
             total_folders = export_stats['total_folders']
             
+            print(f"📝 Setting labels: Messages={total_messages}, Folders={total_folders}")
             self.messages_label.config(text=f"{total_messages:,}")
             self.folders_label.config(text=f"{total_folders:,}")
             
             try:
+                print(f"☁️ Getting backup stats...")
                 backup_stats = get_backup_stats(str(db_path))
                 total_backups = backup_stats['total_backups']
                 completed_backups = backup_stats['completed_backups']
                 total_bytes = backup_stats['total_bytes_uploaded']
                 total_gb = total_bytes / (1024**3)
+                
+                print(f"✓ Backup stats: {total_backups} total, {completed_backups} completed, {total_gb:.2f} GB")
                 
                 if total_backups > 0:
                     percent = int((completed_backups / total_backups) * 100)
@@ -817,13 +878,22 @@ class VisualExporterGUI:
                     self.backup_label.config(text="0%")
                 
                 self.size_label.config(text=f"{total_gb:.2f} GB")
-            except:
-                self.backup_label.config(text="N/A")
-                self.size_label.config(text="N/A")
+            except Exception as e:
+                print(f"⚠️ Backup stats error: {e}")
+                self.backup_label.config(text="0%")
+                self.size_label.config(text="0 GB")
             
+            print("✅ Stats loaded successfully!")
             self.add_activity("📊", "Stats Updated", f"Found {total_messages:,} messages in {total_folders:,} folders", "success")
             
         except Exception as e:
+            print(f"❌ Error loading stats: {e}")
+            import traceback
+            traceback.print_exc()
+            self.messages_label.config(text="0")
+            self.folders_label.config(text="0")
+            self.backup_label.config(text="0%")
+            self.size_label.config(text="0 GB")
             self.add_activity("❌", "Error", f"Failed to load stats: {e}", "error")
     
     def set_buttons_state(self, running=False):

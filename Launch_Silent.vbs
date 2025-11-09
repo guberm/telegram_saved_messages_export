@@ -4,6 +4,9 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 ' Get script directory
 ScriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 
+' Change to script directory first
+WshShell.CurrentDirectory = ScriptDir
+
 ' Try different Python commands
 pythonCommands = Array("py", "python", "python3")
 pythonFound = False
@@ -26,6 +29,6 @@ If Not pythonFound Then
     WScript.Quit 1
 End If
 
-' Run the GUI without showing console
-WshShell.CurrentDirectory = ScriptDir
-WshShell.Run pythonCmd & " gui_visual.py", 0, False
+' Run the GUI without showing console (with full path)
+batPath = fso.BuildPath(ScriptDir, "run_gui_silent.bat")
+WshShell.Run batPath, 0, False

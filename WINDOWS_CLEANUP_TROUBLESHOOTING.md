@@ -88,7 +88,7 @@ cd C:\telegram_export\telegram_saved_messages_exports
 
 Then delete folders one by one:
 ```cmd
-rmdir /s /q "20161220_055428_msg126379_Вредные_советы_для_Вашего_стар"
+rmdir /s /q "20161220_055428_msg126379_Some_Long_Folder_Name_Example"
 ```
 
 Or use Windows Explorer with **Shift+Delete** (permanent delete).

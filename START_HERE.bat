@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 :: Telegram Exporter - Quick Launcher
 :: Launches tkinter GUI directly
 
@@ -13,7 +14,7 @@ echo.
 echo Starting application...
 echo.
 
-:: Проверка Python (пробуем разные варианты)
+:: Check Python (try different variants)
 py --version >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     set PYTHON_CMD=py
@@ -39,10 +40,10 @@ pause
 exit /b 1
 
 :run_gui
-:: Запуск GUI
+:: Launch GUI
 %PYTHON_CMD% gui_visual.py
 
-:: Если программа закрылась с ошибкой
+:: If program crashed with error
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [ERROR] Application crashed!
